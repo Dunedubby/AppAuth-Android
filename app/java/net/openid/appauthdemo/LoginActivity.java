@@ -49,6 +49,8 @@ import net.openid.appauth.AuthorizationRequest;
 import net.openid.appauth.AuthorizationService;
 import net.openid.appauth.AuthorizationServiceConfiguration;
 import net.openid.appauth.ClientSecretBasic;
+import net.openid.appauth.DeviceAuthorizationRequest;
+import net.openid.appauth.DeviceAuthorizationResponse;
 import net.openid.appauth.RegistrationRequest;
 import net.openid.appauth.RegistrationResponse;
 import net.openid.appauth.ResponseTypeValues;
@@ -217,7 +219,8 @@ public final class LoginActivity extends AppCompatActivity {
                     mConfiguration.getAuthEndpointUri(),
                     mConfiguration.getTokenEndpointUri(),
                     mConfiguration.getRegistrationEndpointUri(),
-                    mConfiguration.getEndSessionEndpoint());
+                    mConfiguration.getEndSessionEndpoint(),
+                    mConfiguration.getmDeviceAuthEndpointUri());
 
             mAuthStateManager.replace(new AuthState(config));
             initializeClient();
@@ -320,7 +323,8 @@ public final class LoginActivity extends AppCompatActivity {
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 BrowserInfo info = adapter.getItem(position);
                 if (info == null) {
-                    mBrowserMatcher = AnyBrowserMatcher.INSTANCE;
+                    mBrowserMatcher = adapter.getCount() > 1 ?
+                        AnyBrowserMatcher.INSTANCE : NoBrowserMatcher.INSTANCE;
                     return;
                 } else {
                     mBrowserMatcher = new ExactBrowserMatcher(info.mDescriptor);
@@ -350,6 +354,11 @@ public final class LoginActivity extends AppCompatActivity {
             Log.w(TAG, "Interrupted while waiting for auth intent");
         }
 
+        if (mBrowserMatcher instanceof NoBrowserMatcher) {
+            startDeviceAuthorizationFlow();
+            return;
+        }
+
         if (mUsePendingIntents) {
             final Intent completionIntent = new Intent(this, TokenActivity.class);
             final Intent cancelIntent = new Intent(this, LoginActivity.class);
@@ -372,6 +381,30 @@ public final class LoginActivity extends AppCompatActivity {
                     mAuthIntent.get());
             startActivityForResult(intent, RC_AUTH);
         }
+    }
+
+    private void startDeviceAuthorizationFlow() {
+        DeviceAuthorizationRequest request = new DeviceAuthorizationRequest.Builder(
+            mAuthStateManager.getCurrent().getAuthorizationServiceConfiguration(),
+            mClientId.get()
+        ).build();
+
+        mAuthService.performDeviceAuthorizationRequest(request,
+            this::handleDeviceAuthorizationResponse);
+    }
+
+    @MainThread
+    private void handleDeviceAuthorizationResponse(
+        DeviceAuthorizationResponse response,
+        AuthorizationException ex) {
+        mAuthStateManager.updateAfterDeviceAuthorization(response, ex);
+        if (response == null) {
+            Log.i(TAG, "Failed to authorize the device", ex);
+            displayErrorLater("Failed to authorize the device: " + ex.getMessage(), true);
+            return;
+        }
+
+        startActivity(new Intent(this, TokenActivity.class));
     }
 
     private void recreateAuthorizationService() {
@@ -462,6 +495,11 @@ public final class LoginActivity extends AppCompatActivity {
     }
 
     private void warmUpBrowser() {
+        if (mBrowserMatcher instanceof NoBrowserMatcher) {
+            Log.i(TAG, "Warming up browser is ignored. Reason: no browser found. Device authorization flow will be used instead");
+            return;
+        }
+
         mAuthIntentLatch = new CountDownLatch(1);
         mExecutor.execute(() -> {
             Log.i(TAG, "Warming up browser instance for auth request");
@@ -474,6 +512,11 @@ public final class LoginActivity extends AppCompatActivity {
     }
 
     private void createAuthRequest(@Nullable String loginHint) {
+        if (mBrowserMatcher instanceof NoBrowserMatcher) {
+            Log.i(TAG, "Creating auth request is ignored for login hint: " + loginHint + ". Reason: no browser found. Device authorization flow will be used instead");
+            return;
+        }
+
         Log.i(TAG, "Creating auth request for login hint: " + loginHint);
         AuthorizationRequest.Builder authRequestBuilder = new AuthorizationRequest.Builder(
                 mAuthStateManager.getCurrent().getAuthorizationServiceConfiguration(),

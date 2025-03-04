@@ -597,7 +597,9 @@ public class AuthState {
         }
 
         if (authException != null) {
-            if (authException.type == AuthorizationException.TYPE_OAUTH_TOKEN_ERROR) {
+            if (authException.type == AuthorizationException.TYPE_OAUTH_TOKEN_ERROR
+                || authException.type == AuthorizationException.TYPE_OAUTH_TOKEN_DEVICE_CODE_ERROR
+            ) {
                 mAuthorizationException = authException;
             }
             return;

@@ -64,6 +64,7 @@ public final class Configuration {
     private Uri mEndSessionRedirectUri;
     private Uri mDiscoveryUri;
     private Uri mAuthEndpointUri;
+    private Uri mDeviceAuthEndpointUri;
     private Uri mTokenEndpointUri;
     private Uri mEndSessionEndpoint;
     private Uri mRegistrationEndpointUri;
@@ -151,6 +152,10 @@ public final class Configuration {
         return mAuthEndpointUri;
     }
 
+    public Uri getmDeviceAuthEndpointUri() {
+        return mDeviceAuthEndpointUri;
+    }
+
     @Nullable
     public Uri getTokenEndpointUri() {
         return mTokenEndpointUri;
@@ -217,6 +222,7 @@ public final class Configuration {
 
         if (getConfigString("discovery_uri") == null) {
             mAuthEndpointUri = getRequiredConfigWebUri("authorization_endpoint_uri");
+            mDeviceAuthEndpointUri = getRequiredConfigWebUri("device_authorization_endpoint_uri");
 
             mTokenEndpointUri = getRequiredConfigWebUri("token_endpoint_uri");
             mUserInfoEndpointUri = getRequiredConfigWebUri("user_info_endpoint_uri");

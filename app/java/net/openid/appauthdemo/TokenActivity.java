@@ -16,8 +16,13 @@ package net.openid.appauthdemo;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.Spannable;
+import android.text.SpannableStringBuilder;
+import android.text.style.StyleSpan;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -29,6 +34,9 @@ import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 import androidx.appcompat.app.AppCompatActivity;
 import com.google.android.material.snackbar.Snackbar;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.WriterException;
+import com.journeyapps.barcodescanner.BarcodeEncoder;
 
 import net.openid.appauth.AppAuthConfiguration;
 import net.openid.appauth.AuthState;
@@ -37,10 +45,13 @@ import net.openid.appauth.AuthorizationResponse;
 import net.openid.appauth.AuthorizationService;
 import net.openid.appauth.AuthorizationServiceConfiguration;
 import net.openid.appauth.AuthorizationServiceDiscovery;
+import net.openid.appauth.CancelAsyncTaskRunnable;
 import net.openid.appauth.ClientAuthentication;
+import net.openid.appauth.DeviceAuthorizationResponse;
 import net.openid.appauth.EndSessionRequest;
 import net.openid.appauth.TokenRequest;
 import net.openid.appauth.TokenResponse;
+
 import okio.Okio;
 import org.joda.time.format.DateTimeFormat;
 import org.json.JSONException;
@@ -72,6 +83,7 @@ public class TokenActivity extends AppCompatActivity {
     private AuthStateManager mStateManager;
     private final AtomicReference<JSONObject> mUserInfoJson = new AtomicReference<>();
     private ExecutorService mExecutor;
+    private CancelAsyncTaskRunnable cancelAsyncTaskRunnable;
     private Configuration mConfiguration;
 
     @Override
@@ -139,6 +151,9 @@ public class TokenActivity extends AppCompatActivity {
             exchangeAuthorizationCode(response);
         } else if (ex != null) {
             displayNotAuthorized("Authorization flow failed: " + ex.getMessage());
+        } else if (mStateManager.getCurrent().getLastDeviceAuthorizationResponse() != null) {
+            displayDeviceAuthorization(mStateManager.getCurrent().getLastDeviceAuthorizationResponse());
+            startPollingTokenExchange(mStateManager.getCurrent().getLastDeviceAuthorizationResponse());
         } else {
             displayNotAuthorized("No authorization state retained - reauthorization required");
         }
@@ -160,6 +175,9 @@ public class TokenActivity extends AppCompatActivity {
         super.onDestroy();
         mAuthService.dispose();
         mExecutor.shutdownNow();
+        if (cancelAsyncTaskRunnable != null) {
+            cancelAsyncTaskRunnable.run();
+        }
     }
 
     @MainThread
@@ -167,6 +185,7 @@ public class TokenActivity extends AppCompatActivity {
         findViewById(R.id.not_authorized).setVisibility(View.VISIBLE);
         findViewById(R.id.authorized).setVisibility(View.GONE);
         findViewById(R.id.loading_container).setVisibility(View.GONE);
+        findViewById(R.id.device_auth).setVisibility(View.GONE);
 
         ((TextView)findViewById(R.id.explanation)).setText(explanation);
         findViewById(R.id.reauth).setOnClickListener((View view) -> signOut());
@@ -175,6 +194,7 @@ public class TokenActivity extends AppCompatActivity {
     @MainThread
     private void displayLoading(String message) {
         findViewById(R.id.loading_container).setVisibility(View.VISIBLE);
+        findViewById(R.id.device_auth).setVisibility(View.GONE);
         findViewById(R.id.authorized).setVisibility(View.GONE);
         findViewById(R.id.not_authorized).setVisibility(View.GONE);
 
@@ -182,10 +202,47 @@ public class TokenActivity extends AppCompatActivity {
     }
 
     @MainThread
+    private void displayDeviceAuthorization(DeviceAuthorizationResponse response) {
+        findViewById(R.id.device_auth).setVisibility(View.VISIBLE);
+        findViewById(R.id.loading_container).setVisibility(View.GONE);
+        findViewById(R.id.authorized).setVisibility(View.GONE);
+        findViewById(R.id.not_authorized).setVisibility(View.GONE);
+
+        if (response.verificationUriComplete == null) {
+            displayNotAuthorized("No verification URI retained - Device authorization flow");
+            return;
+        }
+
+        ImageView imageView = findViewById(R.id.image_qr);
+        try {
+            Bitmap bm = new BarcodeEncoder().encodeBitmap(response.verificationUriComplete,
+                BarcodeFormat.QR_CODE, imageView.getMaxHeight(), imageView.getMaxHeight());
+            imageView.setImageBitmap(bm);
+        } catch (WriterException e) {
+            displayNotAuthorized("Device authorization flow failed: " + e.getMessage());
+            return;
+        }
+
+        CharSequence text = getString(R.string.scan_qr, response.verificationUri);
+        if (response.verificationUri != null) {
+            SpannableStringBuilder builder = new SpannableStringBuilder(text);
+            int index = text.toString().indexOf(response.verificationUri);
+            builder.setSpan(new StyleSpan(Typeface.BOLD),
+                index,
+                index + response.verificationUri.length(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text = builder;
+        }
+        ((TextView)findViewById(R.id.guide)).setText(text);
+        ((TextView)findViewById(R.id.code)).setText(response.userCode);
+    }
+
+    @MainThread
     private void displayAuthorized() {
         findViewById(R.id.authorized).setVisibility(View.VISIBLE);
         findViewById(R.id.not_authorized).setVisibility(View.GONE);
         findViewById(R.id.loading_container).setVisibility(View.GONE);
+        findViewById(R.id.device_auth).setVisibility(View.GONE);
 
         AuthState state = mStateManager.getCurrent();
 
@@ -324,6 +381,16 @@ public class TokenActivity extends AppCompatActivity {
         }
     }
 
+    @MainThread
+    private void startPollingTokenExchange(DeviceAuthorizationResponse response) {
+        long intervalSec = 5L;
+        long limitMs = System.currentTimeMillis() + 20 * 1000;
+        cancelAsyncTaskRunnable = mAuthService.performTokenPollRequest(response.createTokenExchangeRequest(),
+            intervalSec, limitMs, this::handleCodeExchangeResponse);
+    }
+
+
+
     /**
      * Demonstrates the use of {@link AuthState#performActionWithFreshTokens} to retrieve
      * user info from the IDP's user info endpoint. This callback will negotiate a new access
@@ -406,7 +473,7 @@ public class TokenActivity extends AppCompatActivity {
         AuthState currentState = mStateManager.getCurrent();
         AuthorizationServiceConfiguration config =
                 currentState.getAuthorizationServiceConfiguration();
-        if (config.endSessionEndpoint != null) {
+        if (currentState.getIdToken() != null && config.endSessionEndpoint != null) {
             Intent endSessionIntent = mAuthService.getEndSessionRequestIntent(
                     new EndSessionRequest.Builder(config)
                         .setIdTokenHint(currentState.getIdToken())

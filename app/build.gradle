@@ -53,6 +53,7 @@ dependencies {
     implementation "com.github.bumptech.glide:glide:${project.googleVersions.glide}"
     implementation "com.squareup.okio:okio:${project.okioVersion}"
     implementation "joda-time:joda-time:${project.jodaVersion}"
+    implementation "com.journeyapps:zxing-android-embedded:${project.zxingVersion}"
 
     annotationProcessor "com.github.bumptech.glide:compiler:${project.googleVersions.glide}"
 }

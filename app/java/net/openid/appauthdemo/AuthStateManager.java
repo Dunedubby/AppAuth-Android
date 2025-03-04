@@ -24,6 +24,7 @@ import androidx.annotation.Nullable;
 import net.openid.appauth.AuthState;
 import net.openid.appauth.AuthorizationException;
 import net.openid.appauth.AuthorizationResponse;
+import net.openid.appauth.DeviceAuthorizationResponse;
 import net.openid.appauth.RegistrationResponse;
 import net.openid.appauth.TokenResponse;
 import org.json.JSONException;
@@ -96,6 +97,16 @@ public class AuthStateManager {
     public AuthState updateAfterAuthorization(
             @Nullable AuthorizationResponse response,
             @Nullable AuthorizationException ex) {
+        AuthState current = getCurrent();
+        current.update(response, ex);
+        return replace(current);
+    }
+
+    @AnyThread
+    @NonNull
+    public AuthState updateAfterDeviceAuthorization(
+        @Nullable DeviceAuthorizationResponse response,
+        @Nullable AuthorizationException ex) {
         AuthState current = getCurrent();
         current.update(response, ex);
         return replace(current);
