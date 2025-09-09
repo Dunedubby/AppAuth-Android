@@ -8,4 +8,5 @@ before_install:
   - mvn -v
 
 install:
-  - ./gradlew publishToMavenLocal -x androidJavadoc
+  - ./gradlew assembleRelease -x androidJavadoc
+
