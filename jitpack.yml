@@ -9,4 +9,4 @@ before_install:
 
 
 install:
-  - mvn install -Dmaven.javadoc.skip=true -DskipTests
+  - ./gradlew install -x androidJavadoc
