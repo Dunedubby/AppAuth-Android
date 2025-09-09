@@ -7,6 +7,5 @@ before_install:
   - sdk install maven
   - mvn -v
 
-
 install:
-  - ./gradlew install -x androidJavadoc
+  - ./gradlew installRelease -x androidJavadoc
