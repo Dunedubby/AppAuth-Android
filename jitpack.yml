@@ -10,3 +10,5 @@ before_install:
 install:
   - ./gradlew assembleRelease -x androidJavadoc
 
+build:
+  - ./gradlew publishToMavenLocal -x androidJavadoc
